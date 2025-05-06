@@ -31,34 +31,48 @@ def extract_frames(video_path, output_folder, num_frames=50):
 
     cap.release()
 
-def encode_face(image_path):
+def encode_known_faces(known_faces_folder):
     """
-    Encodes a face from an image.
+    Encodes all faces in the given folder.
+    Returns a dictionary: {student_name: face_encoding}
     """
-    try:
-        image = face_recognition.load_image_file(image_path)
-        face_encodings = face_recognition.face_encodings(image)
-        if len(face_encodings) > 0:
-            return face_encodings[0]
-        else:
-            return None
-    except Exception as e:
-        print(f"Error encoding face: {e}")
-        return None
+    encodings = {}
+    image_paths = glob.glob(os.path.join(known_faces_folder, "*.jpg"))
 
-def recognize_faces_optimized(student_encoding, frame_path):
+    for image_path in image_paths:
+        name = os.path.splitext(os.path.basename(image_path))[0]
+        try:
+            image = face_recognition.load_image_file(image_path)
+            face_encodings = face_recognition.face_encodings(image)
+            if face_encodings:
+                encodings[name] = face_encodings[0]
+            else:
+                print(f"No face found in {image_path}")
+        except Exception as e:
+            print(f"Error encoding {image_path}: {e}")
+
+    return encodings
+
+
+def recognize_multiple_faces(known_encodings, frame_path):
     """
-    Recognizes faces in a single frame.
+    Recognizes multiple known faces in a single frame.
+    Returns a list of recognized student names.
     """
+    recognized_students = []
+
     try:
         frame = face_recognition.load_image_file(frame_path)
         frame_encodings = face_recognition.face_encodings(frame)
 
         for frame_encoding in frame_encodings:
-            matches = face_recognition.compare_faces([student_encoding], frame_encoding)
-            if True in matches:
-                return True  # Student found in this frame
-        return False  # Student not found in this frame
+            matches = face_recognition.compare_faces(list(known_encodings.values()), frame_encoding)
+            for idx, match in enumerate(matches):
+                if match:
+                    student_name = list(known_encodings.keys())[idx]
+                    if student_name not in recognized_students:
+                        recognized_students.append(student_name)
+        return recognized_students
     except Exception as e:
         print(f"Error recognizing faces in {frame_path}: {e}")
-        return False
+        return []
