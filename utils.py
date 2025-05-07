@@ -1,7 +1,9 @@
 import cv2
 import face_recognition
 import os
+import requests
 import glob
+from pymongo import MongoClient
 
 def extract_frames(video_path, output_folder, num_frames=50):
     """
@@ -76,3 +78,28 @@ def recognize_multiple_faces(known_encodings, frame_path):
     except Exception as e:
         print(f"Error recognizing faces in {frame_path}: {e}")
         return []
+
+def get_student_image_urls():
+    client = MongoClient("mongodb://localhost:27017/")
+    db = client["your_db_name"]
+    students = db.students.find()
+    
+    student_images = {}
+    for student in students:
+        if "studentID" in student and "image" in student:
+            student_images[student["studentID"]] = student["image"]  # image = signed URL
+    return student_images
+
+def download_student_photos(image_urls, download_folder="student_photos"):
+    os.makedirs(download_folder, exist_ok=True)
+    for student_id, url in image_urls.items():
+        try:
+            response = requests.get(url)
+            if response.status_code == 200:
+                with open(os.path.join(download_folder, f"{student_id}.jpg"), "wb") as f:
+                    f.write(response.content)
+                print(f"Downloaded: {student_id}.jpg")
+            else:
+                print(f"Failed to download image for {student_id}: {response.status_code}")
+        except Exception as e:
+            print(f"Error downloading image for {student_id}: {e}")

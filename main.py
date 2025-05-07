@@ -1,44 +1,62 @@
 import os
 import glob
-from utils import extract_frames, encode_known_faces, recognize_multiple_faces
 import multiprocessing
+from utils import (
+    extract_frames,
+    encode_known_faces,
+    recognize_multiple_faces,
+    download_student_photos,
+    get_student_image_urls,
+)
 
 # Paths
 VIDEO_FOLDER = "videos"
 PHOTO_FOLDER = "student_photos"
 OUTPUT_FOLDER = "output"
 
-# User Input
+print("Fetching student image URLs from MongoDB...")
+urls = get_student_image_urls()
+
+print("Downloading student photos from S3 signed URLs...")
+download_student_photos(urls, download_folder=PHOTO_FOLDER)
+
 video_file = input("Enter video file name (inside videos/ folder): ")
 video_path = os.path.join(VIDEO_FOLDER, video_file)
 frame_folder = os.path.join(OUTPUT_FOLDER, "frames")
 
-# Step 1: Extract frames
 print("Extracting frames from video...")
-frames_to_extract = 50
-extract_frames(video_path, frame_folder, frames_to_extract)
+extract_frames(video_path, frame_folder, num_frames=50)
 
-# Step 2: Encode known student faces
-print("Encoding student photos from folder...")
+# Encode student images
+print("Encoding student photos...")
 known_encodings = encode_known_faces(PHOTO_FOLDER)
 
-# Step 3: Recognize faces using multiprocessing
+# Setup multiprocessing to recognize faces
 frame_paths = glob.glob(os.path.join(frame_folder, "*.jpg"))
 
-def process_frame(args):
-    known_encodings, frame_path = args
-    return recognize_multiple_faces(known_encodings, frame_path)
+# -- Multiprocessing setup --
+global_encodings = None  # To be set in worker initializer
+
+def init_worker(encodings):
+    global global_encodings
+    global_encodings = encodings
+
+def process_frame(frame_path):
+    return recognize_multiple_faces(global_encodings, frame_path)
 
 print("Recognizing faces using multiprocessing...")
-with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
-    results = pool.map(process_frame, [(known_encodings, path) for path in frame_paths])
+with multiprocessing.Pool(
+    processes=multiprocessing.cpu_count(),
+    initializer=init_worker,
+    initargs=(known_encodings,)
+) as pool:
+    results = pool.map(process_frame, frame_paths)
 
-# Step 4: Collect results
+# Collect results and show attendance
 all_recognized = set()
 for result in results:
     all_recognized.update(result)
 
-# Step 5: Print attendance
-print("Students present in video:")
+print("\n🎓 Students present in the video:")
 for student in sorted(all_recognized):
-    print(f"- {student}")
+    print(f" - {student}")
